@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 from collections import namedtuple
+import datetime
 
 SITE_BASE_URL = "https://www.guildford.gov.uk/bincollectiondays"
 FORM_SERVER_URL = "https://www.guildford.gov.uk/apiserver/formsservice/http/processsubmission"
@@ -21,6 +22,9 @@ FORMACTION_NEXT = "FORMACTION_NEXT"
 PAGEINSTANCE = "PAGEINSTANCE"
 ADDRESSSEARCH_ADDRESSLIST = "ADDRESSSEARCH_ADDRESSLIST"
 ADDRESSSEARCH_NOADDRESSFOUND = "ADDRESSSEARCH_NOADDRESSFOUND"
+ADDRESSSEARCH_PICKADDRESSLAYOUT = "ADDRESSSEARCH_PICKADDRESSLAYOUT"
+ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL = "ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL"
+BINROUNDTABLE = "FINDBINCOLLECTIONDAYS_FINDCOLLECTIONDAY_BINROUNDTABLEHTML"
 
 class BinWebPage(object):
 
@@ -50,9 +54,6 @@ class BinWebPage(object):
         sessionId = self._get_form_input(soup, SESSIONID)
         nonce = self._get_form_input(soup, NONCE)
 
-        form = soup.find("form", attrs={'id': 'FINDBINCOLLECTIONDAYS_FORM'})
-        print(f"{form.attrs['action']}")
-
         return GuildfordBinsSession(s, sessionId, pageSessionId, nonce)
 
     def _get_form_data(self, session, form_action_next):
@@ -73,7 +74,6 @@ class BinWebPage(object):
         form_data[self._get_field_name(ADDRESSSEARCH_POSTCODE)] = post_code
 
         url = self._get_form_url(session)
-        print(url)
         r = session.session.post(url, data=form_data)
         if not r.status_code == 200:
             raise RuntimeError(f"failed to find addresses for post code {post_code}")
@@ -81,11 +81,6 @@ class BinWebPage(object):
         soup = BeautifulSoup(r.text, "html.parser")
         address_selector = soup.find("select",
             attrs={"name": self._get_field_name(ADDRESSSEARCH_ADDRESSLIST)})
-
-        form = soup.find("form", attrs={'id': 'FINDBINCOLLECTIONDAYS_FORM'})
-        print(f"{form.attrs['action']}")
-        for i in form.find_all('input'):
-            print(i)
 
         nonce = self._get_form_input(soup, NONCE)
         new_session = GuildfordBinsSession(session.session, session.sessionId,
@@ -101,30 +96,48 @@ class BinWebPage(object):
     def find_dates(self, session, post_code, address_key):
 
         form_data = self._get_form_data(session, "Find out bin collection day")
+        form_data[self._get_field_name(VARIABLES)] = "e30="
         form_data[self._get_field_name(ADDRESSSEARCH_POSTCODE)] = post_code
-        form_data[self._get_field_name(ADDRESSSEARCH_ADDRESSLIST)] = address_key
+        form_data[self._get_field_name(ADDRESSSEARCH_ADDRESSLIST)] = [ '', address_key ]
         form_data[self._get_field_name(ADDRESSSEARCH_NOADDRESSFOUND)] = "false"
+        form_data[self._get_field_name(ADDRESSSEARCH_PICKADDRESSLAYOUT)] = "true"
+        form_data[self._get_field_name(ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL)] = "false"
 
         s = session.session
 
         url = self._get_form_url(session)
-        print(url)
         r = s.post(url, data=form_data)
         if not r.status_code == 200:
             raise RuntimeError(f"failed to find dates address {address_key}")
 
-        with open("dates.html", "w") as f:
-            f.write(r.text)
+        soup = BeautifulSoup(r.text, "html.parser")
+        div = soup.find("div",attrs={"id": "FINDBINCOLLECTIONDAYS_FINDCOLLECTIONDAY_BINROUNDTABLEHTML"})
+        table_rows = div.find_all("tr")
+
+        collection_dates = {}
+        headings = None
+        for row in table_rows:
+            if not headings:
+                headings = [td.contents for td in row.find_all("th")]
+            else:
+                (type_,), (freq,), (last,), (next,) = [td.contents for td in row.find_all("td")]
+                next_date = datetime.datetime.strptime(next, "%A %d %B")
+                next_date = next_date.replace(year=datetime.date.today().year)
+                collection_dates[type_] = next_date
+        return collection_dates
 
 
 def main():
 
+    post_code = "GU1 3LN"
+    house_number = "26"
+
     page = BinWebPage()
     session = page.get_session_info()
-    session, addresses = page.find_addresses(session, "GU1 3LN")
-    print(f"found {len(addresses)} addresses, will test {addresses['26']}")
-    dates = page.find_dates(session, "GU1 3LN", addresses["26"])
+    session, addresses = page.find_addresses(session, post_code)
+    dates = page.find_dates(session, post_code, addresses[house_number])
 
+    print(f"dates for {house_number} {post_code} are {dates}")
 
 
 if __name__ == "__main__":
