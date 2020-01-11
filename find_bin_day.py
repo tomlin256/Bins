@@ -50,6 +50,9 @@ class BinWebPage(object):
         sessionId = self._get_form_input(soup, SESSIONID)
         nonce = self._get_form_input(soup, NONCE)
 
+        form = soup.find("form", attrs={'id': 'FINDBINCOLLECTIONDAYS_FORM'})
+        print(f"{form.attrs['action']}")
+
         return GuildfordBinsSession(s, sessionId, pageSessionId, nonce)
 
     def _get_form_data(self, session, form_action_next):
@@ -70,6 +73,7 @@ class BinWebPage(object):
         form_data[self._get_field_name(ADDRESSSEARCH_POSTCODE)] = post_code
 
         url = self._get_form_url(session)
+        print(url)
         r = session.session.post(url, data=form_data)
         if not r.status_code == 200:
             raise RuntimeError(f"failed to find addresses for post code {post_code}")
@@ -77,6 +81,11 @@ class BinWebPage(object):
         soup = BeautifulSoup(r.text, "html.parser")
         address_selector = soup.find("select",
             attrs={"name": self._get_field_name(ADDRESSSEARCH_ADDRESSLIST)})
+
+        form = soup.find("form", attrs={'id': 'FINDBINCOLLECTIONDAYS_FORM'})
+        print(f"{form.attrs['action']}")
+        for i in form.find_all('input'):
+            print(i)
 
         nonce = self._get_form_input(soup, NONCE)
         new_session = GuildfordBinsSession(session.session, session.sessionId,
@@ -96,8 +105,11 @@ class BinWebPage(object):
         form_data[self._get_field_name(ADDRESSSEARCH_ADDRESSLIST)] = address_key
         form_data[self._get_field_name(ADDRESSSEARCH_NOADDRESSFOUND)] = "false"
 
+        s = session.session
+
         url = self._get_form_url(session)
-        r = session.session.post(url, data=form_data)
+        print(url)
+        r = s.post(url, data=form_data)
         if not r.status_code == 200:
             raise RuntimeError(f"failed to find dates address {address_key}")
 
@@ -110,7 +122,7 @@ def main():
     page = BinWebPage()
     session = page.get_session_info()
     session, addresses = page.find_addresses(session, "GU1 3LN")
-    print(f"found {len(addresses)} addresses")
+    print(f"found {len(addresses)} addresses, will test {addresses['26']}")
     dates = page.find_dates(session, "GU1 3LN", addresses["26"])
 
 
