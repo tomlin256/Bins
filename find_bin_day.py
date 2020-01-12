@@ -28,6 +28,7 @@ GuildfordBinsSession = namedtuple("binsession",
 
 
 class BinWebPage(object):
+    """ For querying bin collection days """
 
     def _get_name(self, field):
         return f"{FINDBINCOLLECTIONDAYS}_{field}"
