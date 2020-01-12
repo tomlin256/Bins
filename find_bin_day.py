@@ -3,18 +3,19 @@ from bs4 import BeautifulSoup
 from collections import namedtuple
 import datetime
 
-SITE_BASE_URL = "https://www.guildford.gov.uk/bincollectiondays"
-FORM_SERVER_URL = "https://www.guildford.gov.uk/apiserver/formsservice/http/processsubmission"
+HOST_URL = "https://www.guildford.gov.uk"
+SITE_BASE_URL = f"{HOST_URL}/bincollectiondays"
+FORM_SERVER_URL = f"{HOST_URL}/apiserver/formsservice/http/processsubmission"
 FINDBINCOLLECTIONDAYS = "FINDBINCOLLECTIONDAYS"
 PAGESESSIONID = "PAGESESSIONID"
 SESSIONID = "SESSIONID"
 NONCE = "NONCE"
 PAGENAME = "PAGENAME"
-ADDRESSSEARCH = "ADDRESSSEARCH"
-ADDRESSSEARCH_POSTCODE = "ADDRESSSEARCH_POSTCODE"
 VARIABLES = "VARIABLES"
 FORMACTION_NEXT = "FORMACTION_NEXT"
 PAGEINSTANCE = "PAGEINSTANCE"
+ADDRESSSEARCH = "ADDRESSSEARCH"
+ADDRESSSEARCH_POSTCODE = "ADDRESSSEARCH_POSTCODE"
 ADDRESSSEARCH_ADDRESSLIST = "ADDRESSSEARCH_ADDRESSLIST"
 ADDRESSSEARCH_NOADDRESSFOUND = "ADDRESSSEARCH_NOADDRESSFOUND"
 ADDRESSSEARCH_PICKADDRESSLAYOUT = "ADDRESSSEARCH_PICKADDRESSLAYOUT"
@@ -22,21 +23,22 @@ ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL = "ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL
 BINROUNDTABLE = "FINDBINCOLLECTIONDAYS_FINDCOLLECTIONDAY_BINROUNDTABLEHTML"
 
 GuildfordBinsSession = namedtuple("binsession",
-                                  ("session", "sessionId", "pageSessionId", "nonce"))
+                                  ("session", "sessionId",
+                                   "pageSessionId", "nonce"))
 
 
 class BinWebPage(object):
 
-    def _get_field_name(self, field):
+    def _get_name(self, field):
         return f"{FINDBINCOLLECTIONDAYS}_{field}"
 
     def _get_form_url(self, session):
-        return f"{FORM_SERVER_URL}?pageSessionId={session.pageSessionId}&fsid={session.sessionId}&fsn={session.nonce}"
+        return f"{FORM_SERVER_URL}?pageSessionId={session.pageSessionId}&" \
+               f"fsid={session.sessionId}&fsn={session.nonce}"
 
     def _get_form_input(self, soup, field):
-        field_name = self._get_field_name(field)
-        i = soup.find("input",
-                      attrs={'name': field_name})
+        field_name = self._get_name(field)
+        i = soup.find("input", attrs={'name': field_name})
         if not i:
             raise ValueError(f"didnt find field with name {field_name}")
         return i['value']
@@ -57,29 +59,30 @@ class BinWebPage(object):
 
     def _get_form_data(self, session, form_action_next):
         form_data = {
-            self._get_field_name(SESSIONID): session.sessionId,
-            self._get_field_name(PAGESESSIONID): session.pageSessionId,
-            self._get_field_name(NONCE): session.nonce,
-            self._get_field_name(PAGENAME): ADDRESSSEARCH,
-            self._get_field_name(PAGEINSTANCE): "1",
-            self._get_field_name(VARIABLES): "",
-            self._get_field_name(FORMACTION_NEXT): form_action_next,
+            self._get_name(SESSIONID): session.sessionId,
+            self._get_name(PAGESESSIONID): session.pageSessionId,
+            self._get_name(NONCE): session.nonce,
+            self._get_name(PAGENAME): ADDRESSSEARCH,
+            self._get_name(PAGEINSTANCE): "1",
+            self._get_name(VARIABLES): "",
+            self._get_name(FORMACTION_NEXT): form_action_next,
         }
         return form_data
 
     def _find_addresses(self, session, post_code):
 
         form_data = self._get_form_data(session, "Find address")
-        form_data[self._get_field_name(ADDRESSSEARCH_POSTCODE)] = post_code
+        form_data[self._get_name(ADDRESSSEARCH_POSTCODE)] = post_code
 
         url = self._get_form_url(session)
         r = session.session.post(url, data=form_data)
         if not r.status_code == 200:
-            raise RuntimeError(f"failed to find addresses for post code {post_code}")
+            raise RuntimeError(f"failed to find addresses for post "
+                               "code {post_code}")
 
         soup = BeautifulSoup(r.text, "html.parser")
         address_selector = soup.find("select",
-            attrs={"name": self._get_field_name(ADDRESSSEARCH_ADDRESSLIST)})
+            attrs={"name": self._get_name(ADDRESSSEARCH_ADDRESSLIST)})
 
         nonce = self._get_form_input(soup, NONCE)
         new_session = GuildfordBinsSession(session.session, session.sessionId,
@@ -94,13 +97,15 @@ class BinWebPage(object):
 
     def _find_dates(self, session, post_code, address_key):
 
+        address_list = ['', address_key]
+
         form_data = self._get_form_data(session, "Find out bin collection day")
-        form_data[self._get_field_name(VARIABLES)] = "e30="
-        form_data[self._get_field_name(ADDRESSSEARCH_POSTCODE)] = post_code
-        form_data[self._get_field_name(ADDRESSSEARCH_ADDRESSLIST)] = [ '', address_key ]
-        form_data[self._get_field_name(ADDRESSSEARCH_NOADDRESSFOUND)] = "false"
-        form_data[self._get_field_name(ADDRESSSEARCH_PICKADDRESSLAYOUT)] = "true"
-        form_data[self._get_field_name(ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL)] = "false"
+        form_data[self._get_name(VARIABLES)] = "e30="
+        form_data[self._get_name(ADDRESSSEARCH_POSTCODE)] = post_code
+        form_data[self._get_name(ADDRESSSEARCH_ADDRESSLIST)] = address_list
+        form_data[self._get_name(ADDRESSSEARCH_NOADDRESSFOUND)] = "false"
+        form_data[self._get_name(ADDRESSSEARCH_PICKADDRESSLAYOUT)] = "true"
+        form_data[self._get_name(ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL)] = "false"
 
         s = session.session
 
@@ -119,13 +124,15 @@ class BinWebPage(object):
             if not headings:
                 headings = [td.contents for td in row.find_all("th")]
             else:
-                (type_,), (freq,), (last,), (next,) = [td.contents for td in row.find_all("td")]
+                (type_,), (_,), (_,), (next,) = [td.contents for
+                                                 td in row.find_all("td")]
                 next_date = datetime.datetime.strptime(next, "%A %d %B")
                 next_date = next_date.replace(year=datetime.date.today().year)
                 collection_dates[type_] = next_date
         return collection_dates
 
     def find_dates(self, post_code, house_number):
+        """ query form server to find next collection dates """
         session = self._get_session_info()
         session, addresses = self._find_addresses(session, post_code)
         dates = self._find_dates(session, post_code, addresses[house_number])
