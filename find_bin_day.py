@@ -129,6 +129,7 @@ class BinWebPage(object):
         headings = None
         for row in table_rows:
             if not headings:
+                # type, freq, last, next
                 headings = [td.contents for td in row.find_all("th")]
             else:
                 (type_,), (_,), (_,), (next,) = [td.contents for
