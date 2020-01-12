@@ -110,7 +110,7 @@ class BinWebPage(object):
             raise RuntimeError(f"failed to request dates for {address_key}")
 
         soup = BeautifulSoup(r.text, "html.parser")
-        div = soup.find("div", attrs={"id": "FINDBINCOLLECTIONDAYS_FINDCOLLECTIONDAY_BINROUNDTABLEHTML"})
+        div = soup.find("div", attrs={"id": BINROUNDTABLE})
         table_rows = div.find_all("tr")
 
         collection_dates = {}
