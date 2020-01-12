@@ -19,7 +19,7 @@ ADDRESSSEARCH_POSTCODE = "ADDRESSSEARCH_POSTCODE"
 ADDRESSSEARCH_ADDRESSLIST = "ADDRESSSEARCH_ADDRESSLIST"
 ADDRESSSEARCH_NOADDRESSFOUND = "ADDRESSSEARCH_NOADDRESSFOUND"
 ADDRESSSEARCH_PICKADDRESSLAYOUT = "ADDRESSSEARCH_PICKADDRESSLAYOUT"
-ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL = "ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL"
+ADDRESSSEARCH_SEARCHRESULTSCOND = "ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL"
 BINROUNDTABLE = "FINDBINCOLLECTIONDAYS_FINDCOLLECTIONDAY_BINROUNDTABLEHTML"
 
 GuildfordBinsSession = namedtuple("binsession",
@@ -90,7 +90,9 @@ class BinWebPage(object):
 
         soup = BeautifulSoup(r.text, "html.parser")
         address_selector = soup.find("select",
-            attrs={"name": self._get_name(ADDRESSSEARCH_ADDRESSLIST)})
+                                     attrs={"name":
+                                            self._get_name(
+                                                ADDRESSSEARCH_ADDRESSLIST)})
 
         new_session = self._get_session_info_from_soup(session.session, soup)
 
@@ -113,7 +115,7 @@ class BinWebPage(object):
         form_data[self._get_name(ADDRESSSEARCH_ADDRESSLIST)] = address_list
         form_data[self._get_name(ADDRESSSEARCH_NOADDRESSFOUND)] = "false"
         form_data[self._get_name(ADDRESSSEARCH_PICKADDRESSLAYOUT)] = "true"
-        form_data[self._get_name(ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL)] = "false"
+        form_data[self._get_name(ADDRESSSEARCH_SEARCHRESULTSCOND)] = "false"
 
         url = self._get_form_url(session)
         r = session.session.post(url, data=form_data)
@@ -136,8 +138,15 @@ class BinWebPage(object):
                 (type_,), (_,), (_,), (next,) = [td.contents for
                                                  td in row.find_all("td")]
                 next_date = datetime.datetime.strptime(next, "%A %d %B")
-                next_date = next_date.replace(year=datetime.date.today().year)
-                collection_dates[type_] = next_date
+
+                today = datetime.date.today()
+                if next_date.month < today.month:
+                    year = today.year+1
+                else:
+                    year = today.year
+
+                next_date = next_date.replace(year=year)
+                collection_dates[type_] = next_date.date()
 
         return new_session, collection_dates
 
