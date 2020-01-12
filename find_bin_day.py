@@ -43,19 +43,13 @@ class BinWebPage(object):
             raise ValueError(f"didnt find field with name {field_name}")
         return i['value']
 
-    def _get_session_info(self):
-
-        s = requests.Session()
-        r = s.get(SITE_BASE_URL)
-        if not r.status_code == 200:
-            raise RuntimeError("failed to request session info")
-
-        soup = BeautifulSoup(r.text, "html.parser")
+    def _get_session_info_from_soup(self, request_session, soup):
         pageSessionId = self._get_form_input(soup, PAGESESSIONID)
         sessionId = self._get_form_input(soup, SESSIONID)
         nonce = self._get_form_input(soup, NONCE)
 
-        return GuildfordBinsSession(s, sessionId, pageSessionId, nonce)
+        return GuildfordBinsSession(request_session, sessionId,
+                                    pageSessionId, nonce)
 
     def _get_form_data(self, session, form_action_next):
         form_data = {
@@ -69,7 +63,20 @@ class BinWebPage(object):
         }
         return form_data
 
+    def _create_new_session(self):
+        """ new initial request to get session ids and http session """
+
+        s = requests.Session()
+        r = s.get(SITE_BASE_URL)
+        if not r.status_code == 200:
+            raise RuntimeError("failed to request session info")
+
+        soup = BeautifulSoup(r.text, "html.parser")
+        session = self._get_session_info_from_soup(s, soup)
+        return session
+
     def _find_addresses(self, session, post_code):
+        """ post post_code in address search page """
 
         form_data = self._get_form_data(session, "Find address")
         form_data[self._get_name(ADDRESSSEARCH_POSTCODE)] = post_code
@@ -84,18 +91,18 @@ class BinWebPage(object):
         address_selector = soup.find("select",
             attrs={"name": self._get_name(ADDRESSSEARCH_ADDRESSLIST)})
 
-        nonce = self._get_form_input(soup, NONCE)
-        new_session = GuildfordBinsSession(session.session, session.sessionId,
-                                           session.pageSessionId, nonce)
+        new_session = self._get_session_info_from_soup(session.session, soup)
 
         options = address_selector.find_all("option")
 
+        # address text is in the form "NUMBER, {FLAT X}, STREET NAME"
         addresses = dict((o.text.split(',', 1)[0].strip(), o["value"])
                          for o in options)
 
         return new_session, addresses
 
     def _find_dates(self, session, post_code, address_key):
+        """ select and post house number to get collection dates """
 
         address_list = ['', address_key]
 
@@ -107,14 +114,14 @@ class BinWebPage(object):
         form_data[self._get_name(ADDRESSSEARCH_PICKADDRESSLAYOUT)] = "true"
         form_data[self._get_name(ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL)] = "false"
 
-        s = session.session
-
         url = self._get_form_url(session)
-        r = s.post(url, data=form_data)
+        r = session.session.post(url, data=form_data)
         if not r.status_code == 200:
             raise RuntimeError(f"failed to request dates for {address_key}")
 
         soup = BeautifulSoup(r.text, "html.parser")
+        new_session = self._get_session_info_from_soup(session.session, soup)
+
         div = soup.find("div", attrs={"id": BINROUNDTABLE})
         table_rows = div.find_all("tr")
 
@@ -129,13 +136,15 @@ class BinWebPage(object):
                 next_date = datetime.datetime.strptime(next, "%A %d %B")
                 next_date = next_date.replace(year=datetime.date.today().year)
                 collection_dates[type_] = next_date
-        return collection_dates
+
+        return new_session, collection_dates
 
     def find_dates(self, post_code, house_number):
         """ query form server to find next collection dates """
-        session = self._get_session_info()
+        session = self._create_new_session()
         session, addresses = self._find_addresses(session, post_code)
-        dates = self._find_dates(session, post_code, addresses[house_number])
+        session, dates = self._find_dates(session, post_code,
+                                          addresses[house_number])
         return dates
 
 
