@@ -5,11 +5,6 @@ import datetime
 
 SITE_BASE_URL = "https://www.guildford.gov.uk/bincollectiondays"
 FORM_SERVER_URL = "https://www.guildford.gov.uk/apiserver/formsservice/http/processsubmission"
-
-GuildfordBinsSession = namedtuple("binsession",
-                                  ("session", "sessionId", "pageSessionId", "nonce"))
-
-
 FINDBINCOLLECTIONDAYS = "FINDBINCOLLECTIONDAYS"
 PAGESESSIONID = "PAGESESSIONID"
 SESSIONID = "SESSIONID"
@@ -25,6 +20,10 @@ ADDRESSSEARCH_NOADDRESSFOUND = "ADDRESSSEARCH_NOADDRESSFOUND"
 ADDRESSSEARCH_PICKADDRESSLAYOUT = "ADDRESSSEARCH_PICKADDRESSLAYOUT"
 ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL = "ADDRESSSEARCH_SEARCHRESULTSCONDITIONAL"
 BINROUNDTABLE = "FINDBINCOLLECTIONDAYS_FINDCOLLECTIONDAY_BINROUNDTABLEHTML"
+
+GuildfordBinsSession = namedtuple("binsession",
+                                  ("session", "sessionId", "pageSessionId", "nonce"))
+
 
 class BinWebPage(object):
 
@@ -42,7 +41,7 @@ class BinWebPage(object):
             raise ValueError(f"didnt find field with name {field_name}")
         return i['value']
 
-    def get_session_info(self):
+    def _get_session_info(self):
 
         s = requests.Session()
         r = s.get(SITE_BASE_URL)
@@ -68,7 +67,7 @@ class BinWebPage(object):
         }
         return form_data
 
-    def find_addresses(self, session, post_code):
+    def _find_addresses(self, session, post_code):
 
         form_data = self._get_form_data(session, "Find address")
         form_data[self._get_field_name(ADDRESSSEARCH_POSTCODE)] = post_code
@@ -93,7 +92,7 @@ class BinWebPage(object):
 
         return new_session, addresses
 
-    def find_dates(self, session, post_code, address_key):
+    def _find_dates(self, session, post_code, address_key):
 
         form_data = self._get_form_data(session, "Find out bin collection day")
         form_data[self._get_field_name(VARIABLES)] = "e30="
@@ -108,10 +107,10 @@ class BinWebPage(object):
         url = self._get_form_url(session)
         r = s.post(url, data=form_data)
         if not r.status_code == 200:
-            raise RuntimeError(f"failed to find dates address {address_key}")
+            raise RuntimeError(f"failed to request dates for {address_key}")
 
         soup = BeautifulSoup(r.text, "html.parser")
-        div = soup.find("div",attrs={"id": "FINDBINCOLLECTIONDAYS_FINDCOLLECTIONDAY_BINROUNDTABLEHTML"})
+        div = soup.find("div", attrs={"id": "FINDBINCOLLECTIONDAYS_FINDCOLLECTIONDAY_BINROUNDTABLEHTML"})
         table_rows = div.find_all("tr")
 
         collection_dates = {}
@@ -126,6 +125,12 @@ class BinWebPage(object):
                 collection_dates[type_] = next_date
         return collection_dates
 
+    def find_dates(self, post_code, house_number):
+        session = self._get_session_info()
+        session, addresses = self._find_addresses(session, post_code)
+        dates = self._find_dates(session, post_code, addresses[house_number])
+        return dates
+
 
 def main():
 
@@ -133,9 +138,7 @@ def main():
     house_number = "26"
 
     page = BinWebPage()
-    session = page.get_session_info()
-    session, addresses = page.find_addresses(session, post_code)
-    dates = page.find_dates(session, post_code, addresses[house_number])
+    dates = page.find_dates(post_code, house_number)
 
     print(f"dates for {house_number} {post_code} are {dates}")
 
