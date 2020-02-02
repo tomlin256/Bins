@@ -9,6 +9,7 @@ import os.path
 import pickle
 import logging
 from contexttimer import timer
+import argparse
 
 HOST_URL = "https://www.guildford.gov.uk"
 SITE_BASE_URL = f"{HOST_URL}/bincollectiondays"
@@ -236,8 +237,13 @@ def main():
     logging.basicConfig(format="%(levelname)s %(asctime)s %(message)s",
                         level=logging.INFO)
 
-    post_code = "GU1 3LN"
-    house_number = "26"
+    parser = argparse.ArgumentParser(description='Query bin days')
+    parser.add_argument('postcode')
+    parser.add_argument('house')
+    args = parser.parse_args()
+
+    post_code = args.postcode
+    house_number = args.house
 
     cache = BinPageCache()
     page = BinWebPage(cache)
