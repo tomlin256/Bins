@@ -3,6 +3,12 @@ import requests
 from bs4 import BeautifulSoup
 from collections import namedtuple
 import datetime
+from pathlib import Path
+import os
+import os.path
+import pickle
+import logging
+from contexttimer import timer
 
 HOST_URL = "https://www.guildford.gov.uk"
 SITE_BASE_URL = f"{HOST_URL}/bincollectiondays"
@@ -28,8 +34,59 @@ GuildfordBinsSession = namedtuple("binsession",
                                    "pageSessionId", "nonce"))
 
 
+class BinPostCodeCacheFile(object):
+
+    def __init__(self, cache_path, post_code):
+        self.file_path = f"{cache_path}/{post_code}"
+        self.content = self.read()
+
+    def read(self):
+        if os.path.exists(self.file_path):
+            with open(self.file_path, "rb") as f:
+                content = pickle.load(f)
+        else:
+            content = {}
+        return content
+
+    def write(self):
+        with open(self.file_path, "wb") as f:
+            pickle.dump(self.content, f)
+
+    def set_content(self, content):
+        self.content = content
+
+    def get(self, house_number):
+        return self.content.get(house_number)
+
+
+class BinPageCache(object):
+
+    def __init__(self):
+        self.cache_path = f"{Path.home()}/.bin_days"
+        if not os.path.exists(self.cache_path):
+            os.mkdir(self.cache_path)
+        self._pages = {}
+
+    def _get_page(self, post_code):
+        if post_code not in self._pages:
+            self._pages[post_code] = BinPostCodeCacheFile(self.cache_path,
+                                                          post_code)
+        return self._pages[post_code]
+
+    def get_address_key(self, post_code, house_number):
+        return self._get_page(post_code).get(house_number)
+
+    def set_address_keys(self, post_code, keys):
+        page = self._get_page(post_code)
+        page.set_content(keys)
+        page.write()
+
+
 class BinWebPage(object):
     """ For querying bin collection days """
+
+    def __init__(self, cache_provider):
+        self.cache_provider = cache_provider
 
     def _get_name(self, field):
         return f"{FINDBINCOLLECTIONDAYS}_{field}"
@@ -65,6 +122,7 @@ class BinWebPage(object):
         }
         return form_data
 
+    @timer(logger=logging.getLogger())
     def _create_new_session(self):
         """ new initial request to get session ids and http session """
 
@@ -77,6 +135,7 @@ class BinWebPage(object):
         session = self._get_session_info_from_soup(s, soup)
         return session
 
+    @timer(logger=logging.getLogger())
     def _find_addresses(self, session, post_code):
         """ post post_code in address search page """
 
@@ -105,6 +164,7 @@ class BinWebPage(object):
 
         return new_session, addresses
 
+    @timer(logger=logging.getLogger())
     def _find_dates(self, session, post_code, address_key):
         """ select and post house number to get collection dates """
 
@@ -154,18 +214,33 @@ class BinWebPage(object):
     def find_dates(self, post_code, house_number):
         """ query form server to find next collection dates """
         session = self._create_new_session()
-        session, addresses = self._find_addresses(session, post_code)
-        session, dates = self._find_dates(session, post_code,
-                                          addresses[house_number])
+
+        key = self.cache_provider.get_address_key(post_code, house_number)
+        if not key:
+            session, addresses = self._find_addresses(session, post_code)
+            key = addresses[house_number]
+            self.cache_provider.set_address_keys(post_code, addresses)
+            logging.info(f"{post_code} not found in cache. "
+                         f"added {len(addresses)}")
+        else:
+            logging.info(f"found {key} for {house_number} "
+                         f"{post_code} in cache")
+
+        session, dates = self._find_dates(session, post_code, key)
+
         return dates
 
 
 def main():
 
+    logging.basicConfig(format="%(levelname)s %(asctime)s %(message)s",
+                        level=logging.INFO)
+
     post_code = "GU1 3LN"
     house_number = "26"
 
-    page = BinWebPage()
+    cache = BinPageCache()
+    page = BinWebPage(cache)
     dates = page.find_dates(post_code, house_number)
 
     print(f"dates for {house_number} {post_code} are {dates}")
