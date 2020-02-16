@@ -1,15 +1,17 @@
 #!/usr/bin/env python
-import requests
-from bs4 import BeautifulSoup
-from collections import namedtuple
+import argparse
 import datetime
-from pathlib import Path
+import logging
 import os
 import os.path
 import pickle
-import logging
+from collections import namedtuple
+from pathlib import Path
+
+import requests
+
+from bs4 import BeautifulSoup
 from contexttimer import timer
-import argparse
 
 HOST_URL = "https://www.guildford.gov.uk"
 SITE_BASE_URL = f"{HOST_URL}/bincollectiondays"
@@ -83,6 +85,21 @@ class BinPageCache(object):
         page.write()
 
 
+class NoCacheCache(object):
+
+    def get_session(self, request_session):
+        return None
+
+    def set_session(self, session):
+        return None
+
+    def get_address_key(self, post_code, house_number):
+        return None
+
+    def set_address_keys(self, post_code, keys):
+        pass
+
+
 class BinWebPage(object):
     """ For querying bin collection days """
 
@@ -126,6 +143,8 @@ class BinWebPage(object):
     @timer(logger=logging.getLogger())
     def _create_new_session(self):
         """ new initial request to get session ids and http session """
+
+        logging.info("creating new session")
 
         s = requests.Session()
         r = s.get(SITE_BASE_URL)
@@ -214,6 +233,7 @@ class BinWebPage(object):
 
     def find_dates(self, post_code, house_number):
         """ query form server to find next collection dates """
+
         session = self._create_new_session()
 
         key = self.cache_provider.get_address_key(post_code, house_number)
