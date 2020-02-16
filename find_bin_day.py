@@ -8,8 +8,8 @@ import pickle
 from collections import namedtuple
 from pathlib import Path
 
+import boto3
 import requests
-
 from bs4 import BeautifulSoup
 from contexttimer import timer
 
@@ -37,7 +37,7 @@ GuildfordBinsSession = namedtuple("binsession",
                                    "pageSessionId", "nonce"))
 
 
-class BinPostCodeCacheFile(object):
+class FileSystemCachePage(object):
 
     def __init__(self, cache_path, post_code):
         self.file_path = f"{cache_path}/{post_code}"
@@ -61,19 +61,85 @@ class BinPostCodeCacheFile(object):
     def get(self, house_number):
         return self.content.get(house_number)
 
+    @classmethod
+    def factory(clazz):
+        cache_path = f"{Path.home()}/.bin_days"
+        if not os.path.exists(cache_path):
+            os.mkdir(cache_path)
+
+        def _f(post_code):
+            return clazz(cache_path, post_code)
+
+        return _f
+
+
+class S3CachePage(object):
+
+    def __init__(self, client, post_code):
+        self.client = client
+        self.bucket_name = "bindays.tomlin.com"
+        self.post_code = post_code
+        self.content = self.read()
+
+    def read(self):
+        bucket = self.client.Bucket(self.bucket_name)
+        try:
+            object = bucket.Object(key=self.post_code).get()
+            data = object['Body'].read()
+            contents = pickle.loads(data)
+        except:
+            contents = {}
+        return contents
+
+    def get(self, house_number):
+        return self.content.get(house_number)
+
+    def set_content(self, content):
+        self.content = content
+
+    def write(self):
+        bucket = self.client.Bucket(self.bucket_name)
+        bucket.put_object(Key=self.post_code, Body=pickle.dumps(self.content))
+
+    @classmethod
+    def factory(clazz):
+
+        client = boto3.resource("s3")
+
+        def _f(post_code):
+            return clazz(client, post_code)
+
+        return _f
+
+
+class MemoryCachePage(object):
+
+    def __init__(self, post_code):
+        self.post_code = post_code
+
+    def get(self, house_number):
+        pass
+
+    def set_content(self, content):
+        pass
+
+    def write(self):
+        pass
+
+    @classmethod
+    def factory(clazz):
+        return clazz
+
 
 class BinPageCache(object):
 
-    def __init__(self):
-        self.cache_path = f"{Path.home()}/.bin_days"
-        if not os.path.exists(self.cache_path):
-            os.mkdir(self.cache_path)
+    def __init__(self, page_factory):
+        self.page_factory = page_factory
         self._pages = {}
 
     def _get_page(self, post_code):
         if post_code not in self._pages:
-            self._pages[post_code] = BinPostCodeCacheFile(self.cache_path,
-                                                          post_code)
+            self._pages[post_code] = self.page_factory(post_code)
         return self._pages[post_code]
 
     def get_address_key(self, post_code, house_number):
@@ -83,15 +149,6 @@ class BinPageCache(object):
         page = self._get_page(post_code)
         page.set_content(keys)
         page.write()
-
-
-class NoCacheCache(object):
-
-    def get_address_key(self, post_code, house_number):
-        return None
-
-    def set_address_keys(self, post_code, keys):
-        pass
 
 
 class BinWebPage(object):
@@ -254,12 +311,24 @@ def main():
     parser = argparse.ArgumentParser(description='Query bin days')
     parser.add_argument('postcode')
     parser.add_argument('house')
+    parser.add_argument('--cache-type',
+                        dest='cache_type',
+                        default='file',
+                        choices=('file', 's3', 'memory'))
     args = parser.parse_args()
 
     post_code = args.postcode
     house_number = args.house
 
-    cache = BinPageCache()
+    if args.cache_type == 'file':
+        page_factory_type = FileSystemCachePage
+    elif args.cache_type == 's3':
+        page_factory_type = S3CachePage
+    else:
+        page_factory_type = MemoryCachePage
+    logging.info(f"using page file type {page_factory_type.__name__}")
+
+    cache = BinPageCache(page_factory_type.factory())
     page = BinWebPage(cache)
     dates = page.find_dates(post_code, house_number)
 

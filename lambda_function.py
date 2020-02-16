@@ -18,7 +18,7 @@ def lambda_handler(event, context):
     post_code = event["post_code"]
     house_number = event["house_number"]
 
-    cache = fbd.NoCacheCache()
+    cache = fbd.BinPageCache(fbd.S3CachePage.factory())
     page = fbd.BinWebPage(cache)
     dates = page.find_dates(post_code, house_number)
 
