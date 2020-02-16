@@ -87,12 +87,6 @@ class BinPageCache(object):
 
 class NoCacheCache(object):
 
-    def get_session(self, request_session):
-        return None
-
-    def set_session(self, session):
-        return None
-
     def get_address_key(self, post_code, house_number):
         return None
 
