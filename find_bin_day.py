@@ -84,6 +84,7 @@ class S3CachePage(object):
     def read(self):
         bucket = self.client.Bucket(self.bucket_name)
         try:
+            logging.info(f"reading {self.bucket_name}@{self.post_code}")
             object = bucket.Object(key=self.post_code).get()
             data = object['Body'].read()
             contents = pickle.loads(data)
